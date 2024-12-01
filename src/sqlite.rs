@@ -12,11 +12,15 @@ impl Sqlite {
     pub fn create_table(&self, table_name: String, columns: Vec<String>) -> Result<(), rusqlite::Error> {
         let conn = rusqlite::Connection::open(&self.database_path)?;
         
-        // Build the CREATE TABLE query
-        let columns_str = columns.join(", ");
+        // Add id column as primary key
+        let id_column = "id INTEGER PRIMARY KEY AUTOINCREMENT";
+        let columns_with_id = std::iter::once(id_column.to_string())
+            .chain(columns)
+            .collect::<Vec<String>>();
+        let columns_str = columns_with_id.join(", ");
+        
         let query = format!("CREATE TABLE IF NOT EXISTS {} ({})", table_name, columns_str);
         
-        // Execute the query
         conn.execute(&query, [])?;
         
         Ok(())
