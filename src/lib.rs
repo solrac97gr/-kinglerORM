@@ -14,7 +14,16 @@ pub struct Kingler {
 }
 
 impl Kingler {
-    // Constructor to create a new Kingler instance
+    /// Creates a new instance of the Kingler ORM
+    /// 
+    /// # Arguments
+    /// * `database` - The type of database ("sqlite" or "mysql")
+    /// * `uri` - The connection string or file path
+    /// 
+    /// # Example
+    /// ```rust
+    /// let db = Kingler::new("sqlite".to_string(), "my_database.db".to_string());
+    /// ```
     pub fn new(database: String, uri: String) -> Self {
         Kingler {
             database,
@@ -22,7 +31,16 @@ impl Kingler {
         }
     }
 
-    // New helper function to generate columns from a struct
+    /// Internal helper function that converts a Rust struct into database column definitions
+    /// 
+    /// # Type Parameters
+    /// * `T` - Any type that implements the Serialize trait
+    /// 
+    /// # Arguments
+    /// * `value` - The struct instance to analyze
+    /// 
+    /// # Returns
+    /// A vector of tuples containing column names and their SQL types
     fn generate_columns<T: Serialize>(value: T) -> Vec<(String, String)> {
         let mut columns = Vec::new();
         
@@ -45,7 +63,28 @@ impl Kingler {
         columns
     }
 
-    // Modified create_table function
+    /// Creates a new database table based on a Rust struct
+    /// 
+    /// # Type Parameters
+    /// * `T` - Any type that implements the Serialize trait
+    /// 
+    /// # Arguments
+    /// * `value` - An instance of the struct to use as a template
+    /// 
+    /// # Example
+    /// ```rust
+    /// #[derive(Serialize)]
+    /// struct User {
+    ///     name: String,
+    ///     age: i32,
+    /// }
+    /// 
+    /// let db = Kingler::new("sqlite".to_string(), "my_database.db".to_string());
+    /// db.create_table(User {
+    ///     name: String::new(),
+    ///     age: 0,
+    /// });
+    /// ```
     pub fn create_table<T: Serialize>(&self, value: T) {
         let type_name = std::any::type_name::<T>();
         let table_name = type_name.split("::").last().unwrap_or(type_name);
@@ -53,7 +92,7 @@ impl Kingler {
         
         let columns = Self::generate_columns(value);
 
-        // Create the table depending on the database
+        // Handle different database types
         match self.database.as_str() {
             "sqlite" => {
                 if let Ok(sqlite) = sqlite::Sqlite::new(self.uri.to_string()) {
@@ -74,6 +113,29 @@ impl Kingler {
             }
         }
     }
+
+    /// Inserts a record into the database table
+    /// 
+    /// # Type Parameters
+    /// * `T` - Any type that implements the Serialize trait
+    /// 
+    /// # Arguments
+    /// * `record` - The struct instance to insert
+    /// 
+    /// # Example
+    /// ```rust
+    /// #[derive(Serialize)]
+    /// struct User {
+    ///     name: String,
+    ///     age: i32,
+    /// }
+    /// 
+    /// let db = Kingler::new("sqlite".to_string(), "my_database.db".to_string());
+    /// db.insert(&User {
+    ///     name: "John".to_string(),
+    ///     age: 30,
+    /// });
+    /// ```
     pub fn insert<T: Serialize>(&self, record: &T) {
         let type_name = std::any::type_name::<T>();
         let table_name = type_name.split("::").last().unwrap_or(type_name);
