@@ -28,4 +28,16 @@ fn main() {
         name: "".to_string(),
         price: 0,
     });
+
+    kingler.insert(&Client{
+        id: 1,
+        name: "John Doe".to_string(),
+        age: 25,
+    });
+
+    kingler.insert(&Product{
+        id: 1,
+        name: "Apple".to_string(),
+        price: 10,
+    });
 }

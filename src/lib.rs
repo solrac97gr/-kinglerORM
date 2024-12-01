@@ -1,5 +1,10 @@
 use serde::Serialize;
 pub mod sqlite;
+
+pub trait Table {
+    fn table_name() -> &'static str;
+    fn to_columns(&self) -> Vec<String>;
+}
 #[derive(Serialize)]
 
 
@@ -51,14 +56,42 @@ impl Kingler {
         // Create the table depending on the database
         match self.database.as_str() {
             "sqlite" => {
-                let sqlite = sqlite::Sqlite::new(self.uri.to_string());
-                let result = sqlite.create_table(
-                    table_name.to_string(),
-                    columns.into_iter()
-                          .map(|(name, type_)| format!("{} {}", name, type_))
-                          .collect()
-                );
-                println!("Table creation result: {:?}", result);
+                if let Ok(sqlite) = sqlite::Sqlite::new(self.uri.to_string()) {
+                    let result = sqlite.create_table(
+                        table_name.to_string(),
+                        columns.into_iter()
+                              .map(|(name, type_)| format!("{} {}", name, type_))
+                              .collect()
+                    );
+                    println!("Table creation result: {:?}", result);
+                }
+            }
+            "mysql" => {
+                println!("MySQL database not supported yet");
+            }
+            _ => {
+                eprintln!("Database {} not supported", self.database);
+            }
+        }
+    }
+    pub fn insert<T: Serialize>(&self, record: &T) {
+        let type_name = std::any::type_name::<T>();
+        let table_name = type_name.split("::").last().unwrap_or(type_name);
+        
+        match self.database.as_str() {
+            "sqlite" => {
+                if let Ok(json_value) = serde_json::to_value(&record) {
+                    if let serde_json::Value::Object(map) = json_value {
+                        let columns: Vec<String> = map.keys().cloned().collect();
+                        let values: Vec<String> = map.values()
+                            .map(|v| v.to_string().trim_matches('"').to_string())
+                            .collect();
+                        
+                        if let Ok(sqlite) = sqlite::Sqlite::new(self.uri.to_string()) {
+                            let _ = sqlite.insert(table_name.to_string(), columns, values);
+                        }
+                    }
+                }
             }
             "mysql" => {
                 println!("MySQL database not supported yet");
