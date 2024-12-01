@@ -1,4 +1,5 @@
 use serde::Serialize;
+use rusqlite;
 pub mod sqlite;
 
 pub trait Table {
@@ -46,21 +47,32 @@ impl Kingler {
         
         if let Ok(json_value) = serde_json::to_value(&value) {
             if let serde_json::Value::Object(map) = json_value {
+                // Handle ID field first
+                if map.contains_key("id") {
+                    columns.push(("id".to_string(), "INTEGER PRIMARY KEY AUTOINCREMENT".to_string()));
+                }
+                
+                // Handle other fields
                 for (field_name, field_value) in map {
-                    let sql_type = match field_value {
-                        serde_json::Value::String(_) => "TEXT",
-                        serde_json::Value::Number(n) => {
-                            if n.is_i64() { "INTEGER" }
-                            else { "REAL" }
-                        },
-                        serde_json::Value::Bool(_) => "BOOLEAN",
-                        _ => "TEXT", // Default to TEXT for other types
-                    };
-                    columns.push((field_name, sql_type.to_string()));
+                    if field_name != "id" {  // Skip id as it's already handled
+                        let sql_type = match field_value {
+                            serde_json::Value::String(_) => "TEXT",
+                            serde_json::Value::Number(_) => "INTEGER",
+                            serde_json::Value::Bool(_) => "BOOLEAN",
+                            _ => "TEXT",
+                        };
+                        columns.push((field_name, sql_type.to_string()));
+                    }
                 }
             }
         }
         columns
+    }
+
+    fn format_columns(columns: Vec<(String, String)>) -> Vec<String> {
+        columns.into_iter()
+            .map(|(name, type_)| format!("{} {}", name, type_))
+            .collect()
     }
 
     /// Creates a new database table based on a Rust struct
@@ -85,31 +97,31 @@ impl Kingler {
     ///     age: 0,
     /// });
     /// ```
-    pub fn create_table<T: Serialize>(&self, value: T) {
-        let type_name = std::any::type_name::<T>();
-        let table_name = type_name.split("::").last().unwrap_or(type_name);
+    pub fn create_table<T: Serialize>(&self, value: T) -> Result<(), rusqlite::Error> {
+        let table_name = std::any::type_name::<T>()
+            .split("::")
+            .last()
+            .unwrap_or("unknown");
+        
         println!("Creating table for {}", table_name);
         
         let columns = Self::generate_columns(value);
-
-        // Handle different database types
+        let formatted_columns = Self::format_columns(columns);
+        
         match self.database.as_str() {
             "sqlite" => {
                 if let Ok(sqlite) = sqlite::Sqlite::new(self.uri.to_string()) {
-                    let result = sqlite.create_table(
-                        table_name.to_string(),
-                        columns.into_iter()
-                              .map(|(name, type_)| format!("{} {}", name, type_))
-                              .collect()
-                    );
-                    println!("Table creation result: {:?}", result);
+                    return sqlite.create_table(table_name.to_string(), formatted_columns);
                 }
+                Ok(())
             }
             "mysql" => {
                 println!("MySQL database not supported yet");
+                Err(rusqlite::Error::ExecuteReturnedResults)
             }
             _ => {
                 eprintln!("Database {} not supported", self.database);
+                Err(rusqlite::Error::ExecuteReturnedResults)
             }
         }
     }
@@ -136,7 +148,7 @@ impl Kingler {
     ///     age: 30,
     /// });
     /// ```
-    pub fn insert<T: Serialize>(&self, record: &T) {
+    pub fn insert<T: Serialize>(&self, record: &T) -> Result<i64, rusqlite::Error> {
         let type_name = std::any::type_name::<T>();
         let table_name = type_name.split("::").last().unwrap_or(type_name);
         
@@ -144,22 +156,46 @@ impl Kingler {
             "sqlite" => {
                 if let Ok(json_value) = serde_json::to_value(&record) {
                     if let serde_json::Value::Object(map) = json_value {
-                        let columns: Vec<String> = map.keys().cloned().collect();
-                        let values: Vec<String> = map.values()
-                            .map(|v| v.to_string().trim_matches('"').to_string())
-                            .collect();
+                        let mut columns: Vec<String> = Vec::new();
+                        let mut values: Vec<String> = Vec::new();
+                        
+                        // Skip id field if it's None
+                        for (key, value) in map.iter() {
+                            if key == "id" {
+                                if let serde_json::Value::Null = value {
+                                    continue;
+                                }
+                            }
+                            columns.push(key.clone());
+                            match value {
+                                serde_json::Value::Number(n) => {
+                                    if n.is_i64() {
+                                        values.push(n.as_i64().unwrap().to_string())
+                                    } else if n.is_u64() {
+                                        values.push(n.as_u64().unwrap().to_string())
+                                    } else {
+                                        values.push(n.as_f64().unwrap().to_string())
+                                    }
+                                },
+                                serde_json::Value::String(s) => values.push(format!("'{}'", s)),
+                                serde_json::Value::Bool(b) => values.push(b.to_string()),
+                                serde_json::Value::Null => values.push("NULL".to_string()),
+                                _ => values.push(value.to_string()),
+                            }
+                        }
                         
                         if let Ok(sqlite) = sqlite::Sqlite::new(self.uri.to_string()) {
-                            let _ = sqlite.insert(table_name.to_string(), columns, values);
+                            return sqlite.insert(table_name.to_string(), columns, values);
                         }
                     }
                 }
+                Err(rusqlite::Error::ExecuteReturnedResults)
             }
             "mysql" => {
-                println!("MySQL database not supported yet");
+                Err(rusqlite::Error::ExecuteReturnedResults)
             }
             _ => {
-                eprintln!("Database {} not supported", self.database);
+                Err(rusqlite::Error::ExecuteReturnedResults)
             }
         }
     }

@@ -51,17 +51,8 @@ impl Sqlite {
     /// )?;
     /// ```
     pub fn create_table(&self, table_name: String, columns: Vec<String>) -> Result<(), rusqlite::Error> {
-        // Add an auto-incrementing primary key 'id' column to the start of the columns list
-        let columns_with_id = std::iter::once("id INTEGER PRIMARY KEY AUTOINCREMENT".to_string())
-            .chain(columns)
-            .collect::<Vec<String>>();
-        // Join all column definitions with commas
-        let columns_str = columns_with_id.join(", ");
-        
-        // Construct the CREATE TABLE SQL query
+        let columns_str = columns.join(", ");
         let query = format!("CREATE TABLE IF NOT EXISTS {} ({})", table_name, columns_str);
-        
-        // Execute the query ([] means no parameters are needed)
         self.conn.execute(&query, [])?;
         
         Ok(())
@@ -75,7 +66,7 @@ impl Sqlite {
     /// * `values` - Vector of values to insert (must match columns in length)
     /// 
     /// # Returns
-    /// * `Result<(), rusqlite::Error>` - Success (()) or a database error
+    /// * `Result<i64, rusqlite::Error>` - Success (()) or a database error
     /// 
     /// # Example
     /// ```rust
@@ -86,20 +77,21 @@ impl Sqlite {
     ///     vec!["John".to_string(), "30".to_string()]
     /// )?;
     /// ```
-    pub fn insert(&self, table_name: String, columns: Vec<String>, values: Vec<String>) -> Result<(), rusqlite::Error> {
-        // Create a string of SQL placeholders ("?, ?, ?") matching the number of values
+    pub fn insert(&self, table_name: String, columns: Vec<String>, values: Vec<String>) -> Result<i64, rusqlite::Error> {
         let placeholders = vec!["?"; columns.len()].join(", ");
-        // Join column names with commas
         let columns_str = columns.join(", ");
-        // Construct the INSERT SQL query
         let query = format!(
             "INSERT INTO {} ({}) VALUES ({})",
             table_name, columns_str, placeholders
         );
 
-        // Execute the query with the provided values
-        self.conn.execute(&query, rusqlite::params_from_iter(values))?;
-        Ok(())
+        // Convert string values to params
+        let params: Vec<&dyn rusqlite::ToSql> = values.iter()
+            .map(|v| v as &dyn rusqlite::ToSql)
+            .collect();
+
+        self.conn.execute(&query, rusqlite::params_from_iter(params))?;
+        Ok(self.conn.last_insert_rowid())
     }
 }
 
